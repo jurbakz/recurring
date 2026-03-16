@@ -18,9 +18,18 @@ class DBManager:
         if not self.db_url:
             self.db_url = os.getenv("DATABASE_URL")
             
-        # Clean up the DB URL (Supabase pooling parameter fix)
-        if self.db_url and "pgbouncer=true" in self.db_url:
-            self.db_url = self.db_url.replace("?pgbouncer=true", "").replace("&pgbouncer=true", "")
+        # --- Clean up the DB URL ---
+        if self.db_url:
+            # Strip any whitespace or quotes that might have been pasted
+            self.db_url = self.db_url.strip().strip('"').strip("'")
+            
+            # Remove any pgbouncer params (psycopg2 doesn't like them)
+            if "pgbouncer=true" in self.db_url:
+                self.db_url = self.db_url.split("?")[0]
+            
+            # Fix postgresql:// prefix (some older drivers prefer postgres://)
+            if self.db_url.startswith("postgres://"):
+                self.db_url = self.db_url.replace("postgres://", "postgresql://", 1)
             
         self.is_postgres = self.db_url is not None
         self.setup_db()
