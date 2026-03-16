@@ -18,6 +18,10 @@ class DBManager:
         if not self.db_url:
             self.db_url = os.getenv("DATABASE_URL")
             
+        # Clean up the DB URL (Supabase pooling parameter fix)
+        if self.db_url and "pgbouncer=true" in self.db_url:
+            self.db_url = self.db_url.replace("?pgbouncer=true", "").replace("&pgbouncer=true", "")
+            
         self.is_postgres = self.db_url is not None
         self.setup_db()
 
