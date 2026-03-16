@@ -5,9 +5,20 @@ from db_manager import DBManager
 from ocr_engine import OCREngine
 from PIL import Image
 import os
+from supabase import create_client, Client
+import io
 
 # Page Config
 st.set_page_config(page_title="Recurring Tracker", layout="wide")
+
+# Initialize Supabase Storage
+@st.cache_resource
+def get_supabase_client():
+    url = st.secrets.get("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_KEY")
+    if url and key:
+        return create_client(url, key)
+    return None
 
 # Initialize DB & OCR
 @st.cache_resource
@@ -24,6 +35,7 @@ def get_ocr():
 
 db = get_db()
 ocr = get_ocr()
+sb = get_supabase_client()
 
 # --- Helper Functions ---
 def get_status_info(due_day):
@@ -43,6 +55,30 @@ def get_status_info(due_day):
     else:
         return "#F5F5F5", "Future", False
 
+def upload_to_supabase(file, prop_id):
+    """Uploads file to Supabase Storage and returns public URL."""
+    if not sb:
+        return None
+    
+    try:
+        # Generate unique filename
+        filename = f"{prop_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        
+        # Convert PIL Image or UploadedFile to bytes
+        img_byte_arr = io.BytesIO()
+        Image.open(file).save(img_byte_arr, format='PNG')
+        img_bytes = img_byte_arr.getvalue()
+        
+        # Upload
+        sb.storage.from_("receipts").upload(filename, img_bytes, {"content-type": "image/png"})
+        
+        # Get Public URL
+        public_url = sb.storage.from_("receipts").get_public_url(filename)
+        return public_url
+    except Exception as e:
+        st.error(f"Upload failed: {e}")
+        return None
+
 # --- Modal (Dialog) for Payment ---
 @st.dialog("Complete Your Payment")
 def pay_modal(prop_id, alias, amount):
@@ -55,23 +91,26 @@ def pay_modal(prop_id, alias, amount):
     if uploaded_file:
         with st.spinner("Analyzing Receipt..."):
             img = Image.open(uploaded_file)
-            # Display preview
             st.image(img, caption="Preview", use_container_width=True)
             
             text = ocr.extract_text(img)
             verified = ocr.verify_amount(text, amount)
             
             if st.button("Confirm & Verify", use_container_width=True, type="primary"):
-                current_month = datetime.now().strftime("%Y-%m")
-                db.record_payment(prop_id, current_month, "CLOUD", verified)
-                
-                if verified:
-                    st.success("✅ Match Found! Payment Verified.")
-                    st.balloons()
-                    st.rerun()
-                else:
-                    st.error("❌ Amount mismatch! Manual review required.")
-                    st.write(f"Detected Text: {text}")
+                with st.spinner("Saving Receipt to Cloud..."):
+                    # 1. Upload to Supabase Storage
+                    receipt_url = upload_to_supabase(uploaded_file, prop_id)
+                    
+                    # 2. Record in Database
+                    current_month = datetime.now().strftime("%Y-%m")
+                    db.record_payment(prop_id, current_month, receipt_url or "LOCAL", verified)
+                    
+                    if verified:
+                        st.success("✅ Match Found! Payment Verified and Archived.")
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error("❌ Amount mismatch! Manual review required.")
 
 # --- Navigation Menu ---
 with st.sidebar:
@@ -119,7 +158,7 @@ else:
                                 <p style="margin: 10px 0 0 0; font-size: 0.9em;">📅 <b>Due Day:</b> {due_day}</p>
                             </div>
                         """, unsafe_allow_html=True)
-                        st.write("") # Spacer
+                        st.write("") 
         except Exception as e:
             st.error(f"Error: {e}")
 
@@ -127,12 +166,21 @@ else:
     elif menu == "📜 History":
         st.title("Payment History")
         try:
-            history = db.get_payment_history()
+            # Need to update DB query to include the receipt_url column
+            history = db.get_payment_history_with_url()
             if not history:
                 st.info("No payments recorded yet.")
             else:
-                df = pd.DataFrame(history, columns=["Property", "Date Paid", "Month Reference", "Verified", "Amount"])
-                st.dataframe(df, use_container_width=True)
+                df = pd.DataFrame(history, columns=["Property", "Date Paid", "Month", "Verified", "Amount", "Receipt URL"])
+                
+                # Make URL clickable
+                def make_clickable(url):
+                    if url and url.startswith("http"):
+                        return f'<a href="{url}" target="_blank">View Receipt</a>'
+                    return "No image"
+                
+                df['Receipt URL'] = df['Receipt URL'].apply(make_clickable)
+                st.write(df.to_html(escape=False, index=False), unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Error: {e}")
 
@@ -154,7 +202,6 @@ else:
                 
                 if not is_paid and should_show:
                     with cols[active_tiles % 3]:
-                        # Main Tile
                         st.markdown(f"""
                             <div style="background-color: {bg_color}; padding: 25px; border-radius: 20px; border-bottom: 5px solid rgba(0,0,0,0.1); color: #333; text-align: center;">
                                 <h2 style="margin: 0; font-size: 1.5em;">{alias}</h2>
@@ -162,16 +209,12 @@ else:
                                 <p style="margin: 10px 0 0 0; font-weight: bold; opacity: 0.7;">{status_text}</p>
                             </div>
                         """, unsafe_allow_html=True)
-                        
-                        # Cute Pay Button
                         if st.button(f"Pay {alias} 💸", key=f"btn_{prop_id}", use_container_width=True):
                             pay_modal(prop_id, alias, amount)
-                        
-                        st.write("") # Spacer
+                        st.write("") 
                         active_tiles += 1
 
             if active_tiles == 0:
                 st.success("Everything is paid! Enjoy your coffee. ☕")
-                st.image("https://cdn-icons-png.flaticon.com/512/3063/3063822.png", width=150)
         except Exception as e:
             st.error(f"Error: {e}")

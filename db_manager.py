@@ -138,3 +138,17 @@ class DBManager:
         rows = cur.fetchall()
         conn.close()
         return rows
+
+    def get_payment_history_with_url(self):
+        conn = self.get_connection()
+        cur = conn.cursor()
+        query = """
+            SELECT p.alias, pay.date_paid, pay.month_ref, pay.verified, p.amount, pay.receipt_url
+            FROM payments pay
+            INNER JOIN properties p ON pay.prop_id = p.id
+            ORDER BY pay.date_paid DESC
+        """
+        cur.execute(query)
+        rows = cur.fetchall()
+        conn.close()
+        return rows
