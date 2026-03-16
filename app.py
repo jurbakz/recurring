@@ -46,7 +46,7 @@ def get_status_info(due_day):
 # --- Navigation Menu ---
 with st.sidebar:
     st.title("💸 Tracker Menu")
-    menu = st.radio("Go to:", ["🏠 Home", "➕ Add New", "📜 History"])
+    menu = st.radio("Go to:", ["🏠 Home", "📋 All Bills", "➕ Add New", "📜 History"])
     st.divider()
 
 if db is None:
@@ -69,19 +69,30 @@ else:
                         st.error(f"Error adding property: {e}")
                 else:
                     st.warning("Please fill up all fields.")
-        
-        # --- Show Current List for Verification ---
-        st.divider()
-        st.subheader("📋 Current Recurring List")
+
+    # --- Page: All Bills (NEW) ---
+    elif menu == "📋 All Bills":
+        st.title("All Registered Bills")
         try:
-            current_list = db.get_properties()
-            if not current_list:
-                st.info("No properties added yet.")
+            properties = db.get_properties()
+            if not properties:
+                st.info("No bills registered yet. Go to 'Add New' to get started!")
             else:
-                df_props = pd.DataFrame(current_list, columns=["ID", "Alias", "Amount", "Due Day"])
-                st.dataframe(df_props, hide_index=True, use_container_width=True)
+                cols = st.columns(3)
+                for idx, prop in enumerate(properties):
+                    prop_id, alias, amount, due_day = prop
+                    with cols[idx % 3]:
+                        st.markdown(f"""
+                            <div style="background-color: #F5F5F5; padding: 20px; border-radius: 12px; border: 1px solid #ddd; color: #333;">
+                                <h3 style="margin: 0;">{alias}</h3>
+                                <h4 style="margin: 0; color: #666;">₱{amount:,.2f}</h4>
+                                <p style="margin: 10px 0 0 0;"><b>Due Day:</b> {due_day}</p>
+                                <p style="font-size: 0.8em; color: #888;">ID: {prop_id}</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        st.divider()
         except Exception as e:
-            st.error(f"Error loading list: {e}")
+            st.error(f"Error loading bills: {e}")
 
     # --- Page: History ---
     elif menu == "📜 History":
@@ -95,7 +106,6 @@ else:
                 st.dataframe(df, use_container_width=True)
         except Exception as e:
             st.error(f"Error loading history: {e}")
-            st.info("Tip: If this is a new database, try adding a property first to initialize the tables.")
 
     # --- Page: Home (Dashboard) ---
     else:
