@@ -13,7 +13,9 @@ class DBManager:
 
     def get_connection(self):
         if self.is_postgres:
-            return psycopg2.connect(self.db_url)
+            # For Supabase/Render, we often need to handle the connection string carefully
+            # and sometimes force SSL.
+            return psycopg2.connect(self.db_url, sslmode='prefer')
         else:
             return sqlite3.connect("database.db")
 
@@ -22,43 +24,49 @@ class DBManager:
         cur = conn.cursor()
         
         # Create properties table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS properties (
-                id SERIAL PRIMARY KEY if is_postgres else INTEGER PRIMARY KEY AUTOINCREMENT,
-                alias TEXT NOT NULL,
-                amount FLOAT NOT NULL,
-                due_day INTEGER NOT NULL
-            )
-        """ if self.is_postgres else """
-            CREATE TABLE IF NOT EXISTS properties (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                alias TEXT NOT NULL,
-                amount FLOAT NOT NULL,
-                due_day INTEGER NOT NULL
-            )
-        """)
+        if self.is_postgres:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS properties (
+                    id SERIAL PRIMARY KEY,
+                    alias TEXT NOT NULL,
+                    amount FLOAT NOT NULL,
+                    due_day INTEGER NOT NULL
+                )
+            """)
+        else:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS properties (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    alias TEXT NOT NULL,
+                    amount FLOAT NOT NULL,
+                    due_day INTEGER NOT NULL
+                )
+            """)
 
         # Create payments table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS payments (
-                id SERIAL PRIMARY KEY if is_postgres else INTEGER PRIMARY KEY AUTOINCREMENT,
-                prop_id INTEGER REFERENCES properties(id),
-                date_paid TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                month_ref TEXT NOT NULL,
-                receipt_url TEXT,
-                verified BOOLEAN DEFAULT FALSE
-            )
-        """ if self.is_postgres else """
-            CREATE TABLE IF NOT EXISTS payments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                prop_id INTEGER,
-                date_paid TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                month_ref TEXT NOT NULL,
-                receipt_url TEXT,
-                verified BOOLEAN DEFAULT FALSE,
-                FOREIGN KEY (prop_id) REFERENCES properties(id)
-            )
-        """)
+        if self.is_postgres:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS payments (
+                    id SERIAL PRIMARY KEY,
+                    prop_id INTEGER REFERENCES properties(id),
+                    date_paid TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    month_ref TEXT NOT NULL,
+                    receipt_url TEXT,
+                    verified BOOLEAN DEFAULT FALSE
+                )
+            """)
+        else:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    prop_id INTEGER,
+                    date_paid TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    month_ref TEXT NOT NULL,
+                    receipt_url TEXT,
+                    verified BOOLEAN DEFAULT FALSE,
+                    FOREIGN KEY (prop_id) REFERENCES properties(id)
+                )
+            """)
         
         conn.commit()
         conn.close()
@@ -86,9 +94,16 @@ class DBManager:
         conn.close()
         return row
 
-    def record_payment(self, prop_id, month_ref, receipt_url, verified):
+    def get_payment_history(self):
         conn = self.get_connection()
         cur = conn.cursor()
-        cur.execute("INSERT INTO payments (prop_id, month_ref, receipt_url, verified) VALUES (%s, %s, %s, %s)" if self.is_postgres else "INSERT INTO payments (prop_id, month_ref, receipt_url, verified) VALUES (?, ?, ?, ?)", (prop_id, month_ref, receipt_url, verified))
-        conn.commit()
+        query = """
+            SELECT p.alias, pay.date_paid, pay.month_ref, pay.verified, p.amount
+            FROM payments pay
+            JOIN properties p ON pay.prop_id = p.id
+            ORDER BY pay.date_paid DESC
+        """
+        cur.execute(query)
+        rows = cur.fetchall()
         conn.close()
+        return rows
