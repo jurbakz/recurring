@@ -43,6 +43,36 @@ def get_status_info(due_day):
     else:
         return "#F5F5F5", "Future", False
 
+# --- Modal (Dialog) for Payment ---
+@st.dialog("Complete Your Payment")
+def pay_modal(prop_id, alias, amount):
+    st.write(f"#### Paying for: **{alias}**")
+    st.write(f"Expected Amount: **₱{amount:,.2f}**")
+    st.divider()
+    
+    uploaded_file = st.file_uploader("📸 Upload or Take a Picture of Receipt", key=f"upload_{prop_id}")
+    
+    if uploaded_file:
+        with st.spinner("Analyzing Receipt..."):
+            img = Image.open(uploaded_file)
+            # Display preview
+            st.image(img, caption="Preview", use_container_width=True)
+            
+            text = ocr.extract_text(img)
+            verified = ocr.verify_amount(text, amount)
+            
+            if st.button("Confirm & Verify", use_container_width=True, type="primary"):
+                current_month = datetime.now().strftime("%Y-%m")
+                db.record_payment(prop_id, current_month, "CLOUD", verified)
+                
+                if verified:
+                    st.success("✅ Match Found! Payment Verified.")
+                    st.balloons()
+                    st.rerun()
+                else:
+                    st.error("❌ Amount mismatch! Manual review required.")
+                    st.write(f"Detected Text: {text}")
+
 # --- Navigation Menu ---
 with st.sidebar:
     st.title("💸 Tracker Menu")
@@ -50,7 +80,7 @@ with st.sidebar:
     st.divider()
 
 if db is None:
-    st.warning("Database is not connected. Please check your DATABASE_URL in Secrets.")
+    st.warning("Database is not connected.")
 else:
     # --- Page: Add New ---
     if menu == "➕ Add New":
@@ -60,39 +90,38 @@ else:
             new_alias = st.text_input("Alias (e.g., Rent, Meralco)")
             new_amount = st.number_input("Expected Amount (₱)", min_value=0.0)
             new_due_day = st.number_input("Due Day (1-31)", min_value=1, max_value=31)
-            if st.form_submit_button("Add Recurring Item"):
+            if st.form_submit_button("Add Recurring Item", use_container_width=True):
                 if new_alias and new_amount > 0:
                     try:
                         db.add_property(new_alias, new_amount, new_due_day)
                         st.success(f"Added {new_alias} to list!")
                     except Exception as e:
-                        st.error(f"Error adding property: {e}")
+                        st.error(f"Error: {e}")
                 else:
                     st.warning("Please fill up all fields.")
 
-    # --- Page: All Bills (NEW) ---
+    # --- Page: All Bills ---
     elif menu == "📋 All Bills":
         st.title("All Registered Bills")
         try:
             properties = db.get_properties()
             if not properties:
-                st.info("No bills registered yet. Go to 'Add New' to get started!")
+                st.info("No bills registered yet.")
             else:
                 cols = st.columns(3)
                 for idx, prop in enumerate(properties):
                     prop_id, alias, amount, due_day = prop
                     with cols[idx % 3]:
                         st.markdown(f"""
-                            <div style="background-color: #F5F5F5; padding: 20px; border-radius: 12px; border: 1px solid #ddd; color: #333;">
-                                <h3 style="margin: 0;">{alias}</h3>
-                                <h4 style="margin: 0; color: #666;">₱{amount:,.2f}</h4>
-                                <p style="margin: 10px 0 0 0;"><b>Due Day:</b> {due_day}</p>
-                                <p style="font-size: 0.8em; color: #888;">ID: {prop_id}</p>
+                            <div style="background-color: #ffffff; padding: 20px; border-radius: 15px; border: 1px solid #eee; box-shadow: 2px 2px 10px rgba(0,0,0,0.05); color: #333;">
+                                <h3 style="margin: 0; color: #2C3E50;">{alias}</h3>
+                                <h4 style="margin: 0; color: #7F8C8D;">₱{amount:,.2f}</h4>
+                                <p style="margin: 10px 0 0 0; font-size: 0.9em;">📅 <b>Due Day:</b> {due_day}</p>
                             </div>
                         """, unsafe_allow_html=True)
-                        st.divider()
+                        st.write("") # Spacer
         except Exception as e:
-            st.error(f"Error loading bills: {e}")
+            st.error(f"Error: {e}")
 
     # --- Page: History ---
     elif menu == "📜 History":
@@ -105,7 +134,7 @@ else:
                 df = pd.DataFrame(history, columns=["Property", "Date Paid", "Month Reference", "Verified", "Amount"])
                 st.dataframe(df, use_container_width=True)
         except Exception as e:
-            st.error(f"Error loading history: {e}")
+            st.error(f"Error: {e}")
 
     # --- Page: Home (Dashboard) ---
     else:
@@ -113,7 +142,6 @@ else:
         current_month = datetime.now().strftime("%Y-%m")
         try:
             properties = db.get_properties()
-            
             active_tiles = 0
             cols = st.columns(3)
             
@@ -126,32 +154,24 @@ else:
                 
                 if not is_paid and should_show:
                     with cols[active_tiles % 3]:
+                        # Main Tile
                         st.markdown(f"""
-                            <div style="background-color: {bg_color}; padding: 20px; border-radius: 12px; border-left: 10px solid rgba(0,0,0,0.1); color: #333;">
-                                <h2 style="margin: 0;">{alias}</h2>
-                                <h3 style="margin: 0; color: #555;">₱{amount:,.2f}</h3>
-                                <p style="margin: 10px 0 0 0; font-weight: bold;">{status_text}</p>
+                            <div style="background-color: {bg_color}; padding: 25px; border-radius: 20px; border-bottom: 5px solid rgba(0,0,0,0.1); color: #333; text-align: center;">
+                                <h2 style="margin: 0; font-size: 1.5em;">{alias}</h2>
+                                <h1 style="margin: 5px 0; font-size: 2em; color: #222;">₱{amount:,.0f}</h1>
+                                <p style="margin: 10px 0 0 0; font-weight: bold; opacity: 0.7;">{status_text}</p>
                             </div>
                         """, unsafe_allow_html=True)
                         
-                        uploaded_file = st.file_uploader(f"Scan Receipt", key=f"file_{prop_id}")
-                        if uploaded_file is not None:
-                            with st.spinner("Analyzing Receipt..."):
-                                img = Image.open(uploaded_file)
-                                text = ocr.extract_text(img)
-                                verified = ocr.verify_amount(text, amount)
-                                db.record_payment(prop_id, current_month, "CLOUD", verified)
-                                if verified:
-                                    st.balloons()
-                                    st.success("Verified! Moving to history...")
-                                    st.rerun()
-                                else:
-                                    st.error("Amount mismatch! Try again.")
-                        st.divider()
+                        # Cute Pay Button
+                        if st.button(f"Pay {alias} 💸", key=f"btn_{prop_id}", use_container_width=True):
+                            pay_modal(prop_id, alias, amount)
+                        
+                        st.write("") # Spacer
                         active_tiles += 1
 
             if active_tiles == 0:
-                st.success("Everything is paid! Your home is empty. ☕")
+                st.success("Everything is paid! Enjoy your coffee. ☕")
                 st.image("https://cdn-icons-png.flaticon.com/512/3063/3063822.png", width=150)
         except Exception as e:
-            st.error(f"Error loading dashboard: {e}")
+            st.error(f"Error: {e}")
