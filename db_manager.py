@@ -94,13 +94,21 @@ class DBManager:
         conn.close()
         return row
 
+    def record_payment(self, prop_id, month_ref, receipt_url, verified):
+        conn = self.get_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO payments (prop_id, month_ref, receipt_url, verified) VALUES (%s, %s, %s, %s)" if self.is_postgres else "INSERT INTO payments (prop_id, month_ref, receipt_url, verified) VALUES (?, ?, ?, ?)", (prop_id, month_ref, receipt_url, verified))
+        conn.commit()
+        conn.close()
+
     def get_payment_history(self):
         conn = self.get_connection()
         cur = conn.cursor()
+        # Use a JOIN to get aliases instead of IDs
         query = """
             SELECT p.alias, pay.date_paid, pay.month_ref, pay.verified, p.amount
             FROM payments pay
-            JOIN properties p ON pay.prop_id = p.id
+            INNER JOIN properties p ON pay.prop_id = p.id
             ORDER BY pay.date_paid DESC
         """
         cur.execute(query)
