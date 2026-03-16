@@ -1,0 +1,6 @@
+streamlit
+easyocr
+psycopg2-binary
+pandas
+pillow
+numpy
