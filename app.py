@@ -69,6 +69,19 @@ else:
                         st.error(f"Error adding property: {e}")
                 else:
                     st.warning("Please fill up all fields.")
+        
+        # --- Show Current List for Verification ---
+        st.divider()
+        st.subheader("📋 Current Recurring List")
+        try:
+            current_list = db.get_properties()
+            if not current_list:
+                st.info("No properties added yet.")
+            else:
+                df_props = pd.DataFrame(current_list, columns=["ID", "Alias", "Amount", "Due Day"])
+                st.dataframe(df_props, hide_index=True, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error loading list: {e}")
 
     # --- Page: History ---
     elif menu == "📜 History":

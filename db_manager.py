@@ -6,8 +6,18 @@ from datetime import datetime
 
 class DBManager:
     def __init__(self):
-        # Use DATABASE_URL for PostgreSQL (Render/Supabase), fallback to SQLite locally
-        self.db_url = os.getenv("DATABASE_URL")
+        # Check Streamlit secrets first, then environment variables
+        self.db_url = None
+        try:
+            import streamlit as st
+            if "DATABASE_URL" in st.secrets:
+                self.db_url = st.secrets["DATABASE_URL"]
+        except:
+            pass
+            
+        if not self.db_url:
+            self.db_url = os.getenv("DATABASE_URL")
+            
         self.is_postgres = self.db_url is not None
         self.setup_db()
 
